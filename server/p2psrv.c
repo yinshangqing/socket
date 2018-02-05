@@ -1,10 +1,10 @@
 /*************************************************************************
-	> File Name: echosrv.c
+	> File Name: p2psrv.c
 	> Author: yinshangqing
 	> Mail: 841668821@qq.com 
 	> Created Time: 2018年02月01日 星期四 22时45分02秒
  ************************************************************************/
-// 回射服务器
+// 点对点通信
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +14,7 @@
 #include <arpa/inet.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <signal.h>
 
 #define ERR_EXIT(m)\
 	do\
@@ -21,6 +22,12 @@
 		perror(m);\
 		exit(EXIT_FAILURE);\
 	}while(0)
+
+void handler(int sig)
+{
+	printf("recv a sig=%d\n",sig);
+	exit(EXIT_SUCCESS);
+}
 
 int main()
 {
@@ -62,17 +69,50 @@ int main()
 		ERR_EXIT("accept");
 	}
 	printf("ip=%s port=%d\n",inet_ntoa(peeraddr.sin_addr),ntohs(peeraddr.sin_port));
-	char recvbuf[1024];
-	while(1)
+	pid_t pid;
+	pid = fork();
+	if(pid == -1)
 	{
-		memset(recvbuf,0,sizeof(recvbuf));
-		int ret = read(connfd,recvbuf,sizeof(recvbuf));
-		fputs(recvbuf,stdout);
-		write(connfd,recvbuf,ret);
-		
+		ERR_EXIT("fork");
 	}
-	close(connfd);
-	close(listenfd);
+	if(pid == 0)
+	{	
+		signal(SIGUSR1,handler);
+		char sendbuf[1024] = {0};
+		while(fgets(sendbuf,sizeof(sendbuf),stdin) != NULL)
+		{
+			write(connfd,sendbuf,strlen(sendbuf));
+			memset(sendbuf,0,sizeof(sendbuf));
+		}
+		printf("child close\n");
+		exit(EXIT_SUCCESS);
+	}
+	else
+	{
+		char recvbuf[1024];
+		while(1)
+		{
+			memset(recvbuf,0,sizeof(recvbuf));
+			int ret = read(connfd,recvbuf,sizeof(recvbuf));
+			if(ret == -1)
+			{
+				ERR_EXIT("read");
+			}
+			else if(ret == 0)	// 对方关闭了
+			{
+				printf("peer close\n");
+				break;
+			}
+			else				// 打印
+			{
+				fputs(recvbuf,stdout);
+			}
+		}
+		printf("parent close\n");
+		kill(pid,SIGUSR1);
+		exit(EXIT_SUCCESS);		// 跳出循环则退出
+	}
+
 	return 0;
 }
 

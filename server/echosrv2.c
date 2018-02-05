@@ -1,10 +1,11 @@
 /*************************************************************************
-	> File Name: echosrv.c
+	> File Name: echosrv2.c
 	> Author: yinshangqing
 	> Mail: 841668821@qq.com 
 	> Created Time: 2018年02月01日 星期四 22时45分02秒
  ************************************************************************/
 // 回射服务器
+// 一个连接一个进程来处理并发（子进程来进行通信处理）
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -21,10 +22,11 @@
 		perror(m);\
 		exit(EXIT_FAILURE);\
 	}while(0)
+void do_service(int connfd);
 
 int main()
 {
-	int listenfd;
+	int listenfd;// 监听套接字
 	//listenfd = socket(PF_INET,SOCK_STREAM,0);
 	if((listenfd = socket(PF_INET,SOCK_STREAM,IPPROTO_TCP)) < 0)
 	{
@@ -57,23 +59,55 @@ int main()
 	socklen_t peerlen = sizeof(peeraddr);
 	
 	int connfd;// 已连接套接字
-	if((connfd = accept(listenfd,(struct sockaddr *)&peeraddr,&peerlen)) < 0)
+	pid_t pid;
+	while(1)
 	{
-		ERR_EXIT("accept");
+		if((connfd = accept(listenfd,(struct sockaddr *)&peeraddr,&peerlen)) < 0)
+		{
+			ERR_EXIT("accept");
+		}
+		printf("ip=%s port=%d\n",inet_ntoa(peeraddr.sin_addr),ntohs(peeraddr.sin_port));
+		// 创建一个进程
+		pid = fork();
+		if(pid == -1)
+		{
+			ERR_EXIT("fork");
+		}
+		if(pid == 0)// 子进程
+		{
+			close(listenfd);
+			do_service(connfd);
+			// 销毁与客户端对应的开辟的进程,结束与之对应的会话
+			exit(EXIT_SUCCESS);
+		}
+		else		// 父进程
+		{
+			close(connfd);
+		}
 	}
-	printf("ip=%s port=%d\n",inet_ntoa(peeraddr.sin_addr),ntohs(peeraddr.sin_port));
+	return 0;
+}
+
+void do_service(int connfd)
+{
 	char recvbuf[1024];
 	while(1)
 	{
 		memset(recvbuf,0,sizeof(recvbuf));
 		int ret = read(connfd,recvbuf,sizeof(recvbuf));
+		if(ret == 0)
+		{
+			printf("client close\n");
+			break;
+		}
+		else if(ret == -1) // 读取失败时，避免死循环,退出
+		{
+			ERR_EXIT("read");
+		}
 		fputs(recvbuf,stdout);
 		write(connfd,recvbuf,ret);
 		
 	}
-	close(connfd);
-	close(listenfd);
-	return 0;
-}
 
+}
 
